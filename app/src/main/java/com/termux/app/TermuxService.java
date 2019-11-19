@@ -178,9 +178,7 @@ public final class TermuxService extends Service implements SessionChangedCallba
         if (ACTION_EXECUTE.equals(action) || ACTION_MIGRATE.equals(action)) {
             // Launch the main Termux app, which will now show the current session;
             // if external displays available, launch there; otherwise just default
-            Intent si = new Intent(this, TermuxActivity.class);
-            if (ACTION_EXECUTE.equals(action))
-                si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent si = new Intent(this, TermuxActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 ActivityOptions options = ActivityOptions.makeBasic();
                 DisplayManager dm = (DisplayManager)getSystemService(DISPLAY_SERVICE);

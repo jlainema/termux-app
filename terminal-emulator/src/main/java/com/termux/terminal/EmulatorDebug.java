@@ -6,5 +6,6 @@ public final class EmulatorDebug {
 
     /** The tag to use with {@link Log}. */
     public static final String LOG_TAG = "termux";
+    public static final String WAKELOCK_TAG = "termux:wakelock";
 
 }

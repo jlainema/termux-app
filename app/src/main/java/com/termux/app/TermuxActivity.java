@@ -5,6 +5,7 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.bluetooth.BluetoothDevice;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -15,9 +16,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.hardware.display.DisplayManager;
+import android.hardware.usb.UsbManager;
 import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.net.Uri;
@@ -31,12 +35,14 @@ import android.text.style.StyleSpan;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
@@ -200,6 +206,46 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
             return true;
         }
     }
+    public void trySwitchImmersive() {
+        InputMethodManager mgr = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        Window window = getWindow();
+        View view = window.getDecorView();
+
+        // rerun the serviceIntent, since we might need to switch screens if they attached/detached
+        if ((mListViewAdapter != null) && (mListViewAdapter.getCount() != 0)) {
+            Intent serviceIntent = new Intent(this, TermuxService.class);
+            serviceIntent.setAction(TermuxService.ACTION_MIGRATE);
+            startService(serviceIntent);
+        }
+
+        // hide/show soft input depending on the availability of hardware input devices
+        boolean was_fullscreen = false;
+        if (getResources().getConfiguration().keyboard == Configuration.KEYBOARD_NOKEYS) {
+            mgr.showSoftInput(mTerminalView, InputMethodManager.SHOW_IMPLICIT);
+        } else {
+            mgr.showSoftInput(mTerminalView, InputMethodManager.HIDE_IMPLICIT_ONLY);
+            // if we are on a separate display, keep that display on and in fullscreen while we are on it
+            if (window.getWindowManager().getDefaultDisplay().getDisplayId() != Display.DEFAULT_DISPLAY) {
+                // FLAG_KEEP_SCREEN_ON is separate from wakelock, specific to the screen this activity is on;
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                view.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION // hide nav bar
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN // hide status bar
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE);
+                findViewById(R.id.viewpager).setVisibility(View.GONE);
+                was_fullscreen = true;
+            }
+        }
+
+        if (!was_fullscreen) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            view.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        }
+    }
 
     @Override
     public void onCreate(Bundle bundle) {
@@ -303,6 +349,34 @@ public final class TermuxActivity extends Activity implements ServiceConnection 
         });
 
         registerForContextMenu(mTerminalView);
+
+        mTerminalView.setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
+            @Override public void onSystemUiVisibilityChange(int visibility) { trySwitchImmersive(); }
+        });
+
+        final BroadcastReceiver changeReceiver = new BroadcastReceiver() {
+            public void onReceive(Context context, Intent intent) {
+                trySwitchImmersive();
+            }
+        };
+
+        // bluetooth/usb may be used to attach/detach input devices; listen to them.
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(UsbManager.ACTION_USB_ACCESSORY_ATTACHED);
+        filter.addAction(UsbManager.ACTION_USB_ACCESSORY_DETACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        registerReceiver(changeReceiver, filter);
+
+        // displays may be added/removed, and we may need to move activities to/from them
+        ((DisplayManager)getSystemService(DISPLAY_SERVICE)).registerDisplayListener(new DisplayManager.DisplayListener() {
+            @Override public void onDisplayAdded(int i) { trySwitchImmersive(); }
+            @Override public void onDisplayRemoved(int i) { trySwitchImmersive(); }
+            @Override public void onDisplayChanged(int i) { trySwitchImmersive(); }
+        }, null);
 
         Intent serviceIntent = new Intent(this, TermuxService.class);
         // Start the service and make it run regardless of who is bound to it:

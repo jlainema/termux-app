@@ -1,6 +1,8 @@
 package com.termux.app;
 
 import android.annotation.SuppressLint;
+import android.app.ActivityManager;
+import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,6 +12,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
+import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Binder;
@@ -19,6 +22,7 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.Display;
 import android.widget.ArrayAdapter;
 
 import com.termux.R;
@@ -59,6 +63,7 @@ public final class TermuxService extends Service implements SessionChangedCallba
     private static final String ACTION_UNLOCK_WAKE = "com.termux.service_wake_unlock";
     /** Intent action to launch a new terminal session. Executed from TermuxWidgetProvider. */
     public static final String ACTION_EXECUTE = "com.termux.service_execute";
+    public static final String ACTION_MIGRATE = "com.termux.service_migrate";
 
     public static final String EXTRA_ARGUMENTS = "com.termux.execute.arguments";
 
@@ -106,7 +111,7 @@ public final class TermuxService extends Service implements SessionChangedCallba
         } else if (ACTION_LOCK_WAKE.equals(action)) {
             if (mWakeLock == null) {
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, EmulatorDebug.LOG_TAG);
+                mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, EmulatorDebug.WAKELOCK_TAG);
                 mWakeLock.acquire();
 
                 // http://tools.android.com/tech-docs/lint-in-studio-2-3#TOC-WifiManager-Leak
@@ -167,14 +172,33 @@ public final class TermuxService extends Service implements SessionChangedCallba
 
                 // Make the newly created session the current one to be displayed:
                 TermuxPreferences.storeCurrentSession(this, newSession);
-
-                // Launch the main Termux app, which will now show the current session:
-                startActivity(new Intent(this, TermuxActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             }
         } else if (action != null) {
             Log.e(EmulatorDebug.LOG_TAG, "Unknown TermuxService action: '" + action + "'");
         }
 
+        if (ACTION_EXECUTE.equals(action) || ACTION_MIGRATE.equals(action)) {
+            // Launch the main Termux app, which will now show the current session;
+            // if external displays available, launch there; otherwise just default
+            Intent si = new Intent(this, TermuxActivity.class);
+            if (ACTION_EXECUTE.equals(action))
+                si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                ActivityOptions options = ActivityOptions.makeBasic();
+                DisplayManager dm = (DisplayManager)getSystemService(DISPLAY_SERVICE);
+                Display ds[] = dm.getDisplays();
+                ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+                for(Display d: ds) {
+                    if ((d.getState() > Display.STATE_OFF) && ((d.getFlags() & Display.FLAG_PRESENTATION) != 0) && ((d.getFlags() & Display.FLAG_PRIVATE) == 0)) {
+                        options.setLaunchBounds(null);
+                        options.setLaunchDisplayId(d.getDisplayId());
+                        break;
+                    }
+                }
+                startActivity(si, options.toBundle());
+            } else
+                startActivity(si);
+        }
         // If this service really do get killed, there is no point restarting it automatically - let the user do on next
         // start of {@link Term):
         return Service.START_NOT_STICKY;

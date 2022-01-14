@@ -1,0 +1,14 @@
+
+So, I just spent 4 hours trying to port https://github.com/jlainema/termux-app to current head.
+
+I tried to solve the conflicts first blindly from git conflict notes, and to my great surprise
+I got it compiling in no time (well, less than 30 minutes anyway). However, with the current
+head it no longer works, as I do not know where to stick my launch parameters :-)
+
+I tried googling for @Override startActivity, but I just could not get to intercept the launch
+process. I guess I could just just spawn a full new window from a menu item, but I would much
+rather have the thing work directly integrated - well, a button to launch would be just as good.
+
+So perhaps I will just do that, instead of trying to get someone else to do it for me...
+
+
